@@ -4,57 +4,61 @@ import { QUIZ_QUESTIONS } from '../utils/fitQuizSchema.js';
 // Initializes implicitly using process.env.GEMINI_API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-export const parseVoiceInput = async (req, res) => {
+export const parseVoiceTranscript = async (req, res) => {
   try {
     const { currentQuestionId, transcript } = req.body;
 
-    if (!currentQuestionId || !transcript) {
-      return res.status(400).json({ error: "Missing currentQuestionId or transcript." });
-    }
+    // 1. Updated Schema to explicitly include a 'skipped' boolean flag
+    const quizResponseSchema = {
+      type: "OBJECT",
+      properties: {
+        field: { 
+          type: "STRING", 
+          description: "The technical state key being updated (e.g., 'height', 'weight', 'fitPreference')." 
+        },
+        value: { 
+          type: ["STRING", "NULL"],
+          description: "The verified measurement or preference value extracted. Must be null if the user wants to skip or if the text is entirely unclear." 
+        },
+        skipped: {
+          type: "BOOLEAN",
+          description: "Set to true ONLY if the user explicitly expresses a desire to bypass, skip, pass, or refuse to answer this optional question. Otherwise, false."
+        },
+        confirmationSpeech: { 
+          type: "STRING", 
+          description: "A short conversational phrase confirming the action taken (e.g., 'No problem, skipping that.', or 'Awesome, 170 pounds.')." 
+        }
+      },
+      required: ["field", "value", "skipped", "confirmationSpeech"]
+    };
 
-    const questionMeta = QUIZ_QUESTIONS[currentQuestionId];
-    if (!questionMeta) {
-      return res.status(404).json({ error: "Invalid question ID." });
-    }
-
-    const systemPrompt = `
-      You are an AI data parser backend for Jackie Jeans. The user was asked the question: "${questionMeta.label}".
-      Their raw spoken response is: "${transcript}".
-      
-      Your objective is to extract the pure data value following these structural constraints:
-      - Field ID to output: "${questionMeta.id}"
-      - Expected data type format: ${questionMeta.type}
-      
-      Parsing Logic:
-      1. If the user explicitly asks to skip, bypass, says "I don't know", or hesitates to answer (highly relevant if type is optional_number), set "skipped": true and "value": null.
-      2. For human heights (e.g., "five foot ten", "five eleven"), format strictly as feet and inches: 5'10"
-      3. For sizes, extract just the raw numerical value or standardized category selection.
-      4. For past brands multi-select, output a string array of matched brands.
-      
-      You must respond strictly with a valid JSON string containing exactly these fields:
-      {
-        "field": "${questionMeta.id}",
-        "value": <extracted_value_or_null>,
-        "skipped": true/false,
-        "confirmationSpeech": "A single brief, organic confirmation sentence a retail stylist would say to acknowledge their input (e.g., 'Awesome, 5 foot 10 inches.', or 'Got it, let's skip the weight.')"
-      }
-    `;
-
+    // 2. Clear contextual instructions for handling intent mapping
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: systemPrompt,
+      model: "gemini-2.5-flash", 
+      contents: `The user was asked question ID: "${currentQuestionId}". Their spoken input transcript is: "${transcript}". Process the intent.`,
       config: {
-        responseMimeType: 'application/json',
-        temperature: 0.1
+        systemInstruction: "You are an intelligent data-extraction engine for Jackie Jeans. You must comprehend user intent. " +
+                          "CORE INTENT RULES:\n" +
+                          "1. IF THE USER WANTS TO SKIP: If the transcript contains words like 'skip', 'skip it', 'pass', 'I don't know', 'next question', or 'I don't want to answer', " +
+                          "YOU MUST set 'skipped': true, 'value': null, and 'confirmationSpeech' to a friendly skipping confirmation.\n" +
+                          "2. IF THE USER PROVIDES DATA: If they say 'I weigh 160 pounds' or just '160', set 'skipped': false, extract the data into 'value', and confirm it.\n" +
+                          "3. IF THE USER IS UNCLEAR/GARBAGE AUDIO: If the audio is completely unreadable or irrelevant, set 'skipped': false, 'value': null, and ask them to repeat.",
+        responseMimeType: "application/json",
+        responseSchema: quizResponseSchema,
+        temperature: 0.1 // Slightly bumped to allow conversational intent mapping while keeping data tight
       }
     });
 
-    // Extract text block directly from Gemini response
-    const jsonOutput = JSON.parse(response.text);
-    return res.status(200).json(jsonOutput);
+    let cleanText = response.text.trim();
+    if (cleanText.startsWith("```")) {
+      cleanText = cleanText.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    }
+
+    const extractedData = JSON.parse(cleanText);
+    return res.status(200).json(extractedData);
 
   } catch (error) {
-    console.error("Gemini Parsing Engine Error:", error);
-    return res.status(500).json({ error: "Failed to parse voice transcript smoothly." });
+    console.error("Gemini Extraction Error:", error);
+    return res.status(500).json({ error: "Failed to parse speech metrics accurately." });
   }
 };

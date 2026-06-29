@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { parseVoiceInput } from './src/controllers/quizController.js';
+import { parseVoiceTranscript } from './src/controllers/quizController.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,7 +16,7 @@ app.get('/health', (req, res) => {
 });
 
 // Primary Endpoint for AI Voice Processing
-app.post('/api/parse-voice', parseVoiceInput);
+app.post('/api/parse-voice', parseVoiceTranscript);
 
 // Catch-all fallbacks
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
