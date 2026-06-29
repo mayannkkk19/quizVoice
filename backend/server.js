@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 const allowedOrigins = [
   'http://localhost:5173', // Your local Vite server
-  'https://your-app-frontend.vercel.app' // Your eventual production Vercel URL
+  'https://quiz-voice.vercel.app' // Your eventual production Vercel URL
 ];
 app.use(cors({
   origin: (origin, callback) => {
